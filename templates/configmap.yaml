@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hive.fullname" . }}-config
+  labels:
+    {{- include "hive.labels" . | nindent 4 }}
+data:
+  # Non-secret HIVE_* settings; secrets come from Vault or envSecretName.
+  {{- with include "hive.redisUrl" . }}
+  HIVE_REDIS_URL: {{ . | quote }}
+  {{- end }}
+  {{- range $key, $value := .Values.conf }}
+  {{- if ne $key "HIVE_REDIS_URL" }}
+  {{ $key }}: {{ $value | toString | quote }}
+  {{- end }}
+  {{- end }}

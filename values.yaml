@@ -1,0 +1,159 @@
+# Defaults for the Hive dashboard. Override per deployment in the
+# argocd-apps repos.
+
+image:
+  repository: registry.rc.nectar.org.au/nectar/hive
+  tag: "" # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+# Non-secret settings, one HIVE_* environment variable per key, rendered into
+# a ConfigMap and loaded with envFrom. See backend/hive/config.py in the hive
+# repo for the full list and defaults. Secrets (HIVE_SECRET_KEY,
+# HIVE_SENTRY_DSN, HIVE_PASSWORD_RESET_TOKEN) never belong here: they arrive
+# from Vault (vault below) or envSecretName.
+conf:
+  HIVE_ENV: test
+  HIVE_LOG_FORMAT: json
+  HIVE_REGION: Melbourne
+
+# Deliver secrets with the Vault Agent Injector (no Kubernetes Secret). The
+# agent renders /vault/secrets/env as `export KEY="VAL"` lines, one per key
+# of settingsSecret, sourced by the container before exec. The secret's keys
+# ARE the environment variable names.
+vault:
+  enabled: true
+  # Vault Kubernetes auth role bound to the pods' ServiceAccount (which is
+  # named after the release, not the fullname). REQUIRED when enabled.
+  role: "k8s"
+  # KV v2 path (note the /data/ segment): secret/data/k8s/<namespace>/<release>/settings
+  settingsSecret: "secret/data/k8s/hive/hive/settings"
+  # Optional: extra vault.hashicorp.com/* annotations merged onto the pods.
+  annotations: {}
+
+# Fallback when vault.enabled is false: an existing Kubernetes Secret whose
+# keys are environment variables (HIVE_SECRET_KEY, ...), used via envFrom.
+envSecretName: ""
+
+components:
+  # Deploy the bundled Redis. Off by default: set conf.HIVE_REDIS_URL to an
+  # external one, or set this true.
+  redis: false
+
+# Bitnami redis subchart (sessions and caches). Sessions are ephemeral: a
+# restart means users log in again, so persistence stays off. AUTH is off
+# only because the NetworkPolicy limits ingress to the hive pods; enable
+# both before production.
+redis:
+  global:
+    imageRegistry: registry.rc.nectar.org.au/docker.io
+    security:
+      allowInsecureImages: true
+  image:
+    repository: bitnamisecure/redis
+    tag: latest
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: false
+    resourcesPreset: nano
+  metrics:
+    enabled: false
+    serviceMonitor:
+      enabled: false
+      additionalLabels:
+        release: prometheus
+
+service:
+  port: 80
+
+# Gateway API HTTPRoute (not Ingress). The SPA uses root-absolute asset
+# paths, so the route must map a hostname root, never a sub-path.
+gateway:
+  enabled: false
+  annotations: {}
+  hostnames: []
+  parentRefs:
+    - name: public
+      namespace: infra
+  # Large object uploads and slow OpenStack calls need generous timeouts.
+  timeouts:
+    request: 300s
+    backendRequest: 300s
+
+pdb:
+  enabled: false
+  minAvailable: 1
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    additionalLabels:
+      release: prometheus
+
+# Ingress to the API from anywhere in the cluster (the gateway pods live in
+# their own namespace) and to Redis from the hive pods only.
+networkPolicy:
+  enabled: true
+
+# Pod- and container-level security contexts. The defaults satisfy the
+# "Restricted" Pod Security Standard. 42420 is the image's app user.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 42420
+  runAsGroup: 42420
+  fsGroup: 42420
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  # Set explicitly (matching podSecurityContext) so the Vault Agent
+  # Injector's agent-run-as-same-user can read the UID from the container.
+  runAsUser: 42420
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+probes:
+  startup:
+    path: /healthz
+    periodSeconds: 5
+    failureThreshold: 30
+  liveness:
+    path: /healthz
+    periodSeconds: 20
+  readiness:
+    path: /readyz
+    periodSeconds: 10
+
+# Let the gateway drain connections before the process receives SIGTERM.
+preStopSleep: 10
+terminationGracePeriodSeconds: 60
+
+# Spread replicas across nodes when possible.
+podAntiAffinityPreset: soft
+
+nodeSelector: {}
+tolerations: []
+podAnnotations: {}
+nameOverride: ""
+fullnameOverride: ""
