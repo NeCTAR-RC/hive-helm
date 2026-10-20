@@ -2,8 +2,8 @@ apiVersion: v2
 name: hive
 description: 'Hive, the Nectar Research Cloud dashboard: a React SPA and its FastAPI backend-for-frontend in one Deployment, with an optional Redis subchart for sessions and caches.'
 type: application
-version: 0.1.2
-appVersion: 0.1.1
+version: 0.1.3
+appVersion: 0.1.2
 sources:
 - https://github.com/NeCTAR-RC/hive-helm.git
 - https://github.com/NeCTAR-RC/hive.git
