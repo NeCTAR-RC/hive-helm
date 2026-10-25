@@ -10,5 +10,5 @@ sources:
 dependencies:
 - name: redis
   repository: oci://registry-1.docker.io/bitnamicharts
-  version: 28.3.1
+  version: 28.3.9
   condition: components.redis
